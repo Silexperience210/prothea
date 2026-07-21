@@ -5,6 +5,9 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -26,11 +29,28 @@ jobs:
       - name: Build APK
         run: ./gradlew assembleRelease
 
+      - name: Sign APK (debug key, installable)
+        run: |
+          UNSIGNED=app/build/outputs/apk/release/app-release-unsigned.apk
+          SIGNED=app/build/outputs/apk/release/prothea.apk
+          if [ -f "$UNSIGNED" ]; then
+            "$ANDROID_HOME"/build-tools/*/apksigner sign \
+              --ks ~/.android/debug.keystore --ks-pass pass:android \
+              --key-pass pass:android --out "$SIGNED" "$UNSIGNED" 2>/dev/null || {
+              keytool -genkeypair -v -keystore ~/.android/debug.keystore \
+                -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 \
+                -storepass android -keypass android -dname "CN=Android Debug,O=Android,C=US"
+              "$ANDROID_HOME"/build-tools/*/apksigner sign \
+                --ks ~/.android/debug.keystore --ks-pass pass:android \
+                --key-pass pass:android --out "$SIGNED" "$UNSIGNED"
+            }
+          fi
+
       - name: Upload APK (artifact)
         uses: actions/upload-artifact@v4
         with:
           name: prothea-apk
-          path: app/build/outputs/apk/release/*.apk
+          path: app/build/outputs/apk/release/prothea.apk
 
       - name: Release
         if: github.event_name == 'workflow_dispatch'
@@ -38,4 +58,4 @@ jobs:
         with:
           tag_name: v${{ github.run_number }}
           name: Prothea v${{ github.run_number }}
-          files: app/build/outputs/apk/release/*.apk
+          files: app/build/outputs/apk/release/prothea.apk
