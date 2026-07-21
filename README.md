@@ -16,6 +16,8 @@ Prothea permet aux femmes ayant subi une mastectomie de réaliser elles-mêmes �
 ## Fonctionnement
 
 1. **Capture guidée** : un anneau de 16 secteurs s'affiche à l'écran. La personne (ou un proche) tourne lentement autour de la patiente ; chaque secteur validé passe au vert. ARCore fournit la pose métrique quand disponible, sinon les capteurs inertiels prennent le relais.
+   - **Caméra arrière** : scan par un proche, avec nuage de points 3D ARCore si l'appareil le supporte.
+   - **Caméra avant (auto-scan)** : la patiente se scanne seule, téléphone à bout de bras, en tournant sur elle-même — intimité totale. (Le nuage 3D ARCore est mis en pause dans ce mode : la profondeur n'est disponible que sur la caméra arrière.)
 2. **Profondeur réelle** : sur les appareils compatibles ARCore Depth (ToF ou depth-from-motion), un **nuage de points 3D à l'échelle réelle** (±1–3 mm) est accumulé pendant le scan et exporté en PLY.
 3. **Photos sources** : chaque photo est horodatée avec son azimut — exploitable en photogrammétrie (Meshroom/COLMAP en local) pour une précision supérieure.
 4. **Export** : ZIP de la session via le sélecteur de fichiers Android. Possibilité de supprimer les photos sources après reconstruction (option vie privée).

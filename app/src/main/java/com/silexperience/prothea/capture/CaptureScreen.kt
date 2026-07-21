@@ -71,9 +71,18 @@ fun CaptureScreen(vm: ScanViewModel, onDone: () -> Unit) {
     val imageCapture = remember { ImageCapture.Builder().build() }
     var capturing by remember { mutableStateOf(false) }
 
-    // Relance ARCore une fois la permission camera accordee
-    androidx.compose.runtime.LaunchedEffect(hasCamera) {
-        if (hasCamera && vm.arCore.state != ArCoreEngine.State.READY) {
+    // Camera arriere par defaut ; la frontale permet l'auto-scan en solo
+    var useFrontCamera by remember { mutableStateOf(false) }
+    val cameraSelector = if (useFrontCamera)
+        CameraSelector.DEFAULT_FRONT_CAMERA else CameraSelector.DEFAULT_BACK_CAMERA
+
+    // ARCore utilise sa propre camera (arriere) : on le coupe en mode
+    // camera avant pour ne pas accumuler un nuage incoherent avec l'aperçu
+    androidx.compose.runtime.LaunchedEffect(hasCamera, useFrontCamera) {
+        if (!hasCamera) return@LaunchedEffect
+        if (useFrontCamera) {
+            vm.arCore.stop()
+        } else if (vm.arCore.state != ArCoreEngine.State.READY) {
             vm.arCore.stop()
             vm.arCore.start()
         }
@@ -98,26 +107,38 @@ fun CaptureScreen(vm: ScanViewModel, onDone: () -> Unit) {
             return@Box
         }
 
-        // ---- Flux camera ----
+        // ---- Flux camera (rebind automatique au changement de camera) ----
+        val previewView = remember { PreviewView(context) }
+        androidx.compose.runtime.LaunchedEffect(cameraSelector, hasCamera) {
+            if (!hasCamera) return@LaunchedEffect
+            val provider = ProcessCameraProvider.getInstance(context).get()
+            val preview = Preview.Builder().build().also {
+                it.setSurfaceProvider(previewView.surfaceProvider)
+            }
+            provider.unbindAll()
+            provider.bindToLifecycle(lifecycleOwner, cameraSelector, preview, imageCapture)
+        }
         AndroidView(
-            factory = { ctx ->
-                val pv = PreviewView(ctx)
-                val future = ProcessCameraProvider.getInstance(ctx)
-                future.addListener({
-                    val provider = future.get()
-                    val preview = Preview.Builder().build().also {
-                        it.setSurfaceProvider(pv.surfaceProvider)
-                    }
-                    provider.unbindAll()
-                    provider.bindToLifecycle(
-                        lifecycleOwner, CameraSelector.DEFAULT_BACK_CAMERA,
-                        preview, imageCapture
-                    )
-                }, ContextCompat.getMainExecutor(ctx))
-                pv
-            },
+            factory = { previewView },
             modifier = Modifier.fillMaxSize()
         )
+
+        // ---- Bouton switch camera (haut droite) ----
+        OutlinedButton(
+            onClick = { useFrontCamera = !useFrontCamera },
+            modifier = Modifier.align(Alignment.TopEnd).padding(top = 48.dp, end = 16.dp)
+        ) {
+            Text(if (useFrontCamera) "Camera arriere" else "Camera avant")
+        }
+        if (useFrontCamera) {
+            Text(
+                "Mode auto-scan : tenez le telephone a bout de bras et tournez lentement sur vous-meme",
+                color = Color.White,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.align(Alignment.TopCenter)
+                    .padding(top = 220.dp, start = 32.dp, end = 32.dp)
+            )
+        }
 
         // ---- Anneau de couverture ----
         Canvas(
@@ -151,7 +172,9 @@ fun CaptureScreen(vm: ScanViewModel, onDone: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             val arState = vm.arCore.state
-            val arLabel = when (arState) {
+            val arLabel = if (useFrontCamera)
+                "Nuage 3D en pause (profondeur = camera arriere) — repassez en camera arriere pour le mesh"
+            else when (arState) {
                 ArCoreEngine.State.READY ->
                     if (vm.arCore.depthSupported)
                         "ARCore actif · profondeur OK · $cloudPoints pts"
