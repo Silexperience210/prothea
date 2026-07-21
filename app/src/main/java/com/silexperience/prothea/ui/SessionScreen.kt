@@ -1,0 +1,104 @@
+package com.silexperience.prothea.ui
+
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import com.silexperience.prothea.scan.ScanViewModel
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+
+@Composable
+fun SessionScreen(vm: ScanViewModel, sessionId: String, onBack: () -> Unit) {
+    val context = LocalContext.current
+    val info = remember(sessionId) {
+        vm.sessions.listSessions().firstOrNull { it.id == sessionId }
+    }
+
+    val exportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/zip")
+    ) { uri ->
+        uri?.let {
+            vm.exportSession(sessionId, it) { ok ->
+                Toast.makeText(
+                    context,
+                    if (ok) "Export ZIP termine" else "Echec de l'export",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        }
+    }
+
+    Column(
+        Modifier.fillMaxSize().padding(24.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Text("Session", style = MaterialTheme.typography.headlineMedium,
+            fontWeight = FontWeight.Bold)
+
+        if (info == null) {
+            Text("Session introuvable.")
+        } else {
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    val fmt = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.FRANCE)
+                    Text(fmt.format(Date(info.dateMillis)))
+                    Text("${info.photoCount} photos source")
+                    if (info.hasCloud)
+                        Text("Nuage 3D : ${info.pointCount} points (PLY, echelle reelle)")
+                    else
+                        Text("Pas de nuage 3D (telephone sans profondeur ARCore)")
+                }
+            }
+
+            Button(
+                onClick = { exportLauncher.launch("$sessionId.zip") },
+                Modifier.fillMaxWidth()
+            ) { Text("Exporter la session (ZIP)") }
+
+            if (info.photoCount > 0) {
+                OutlinedButton(
+                    onClick = {
+                        vm.sessions.deletePhotos(sessionId)
+                        Toast.makeText(context,
+                            "Photos sources supprimees", Toast.LENGTH_SHORT).show()
+                    },
+                    Modifier.fillMaxWidth()
+                ) { Text("Supprimer les photos sources (vie privee)") }
+            }
+
+            OutlinedButton(
+                onClick = {
+                    vm.sessions.deleteSession(sessionId)
+                    onBack()
+                },
+                Modifier.fillMaxWidth()
+            ) { Text("Supprimer la session") }
+        }
+
+        Spacer(Modifier.height(8.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+            TextButton(onClick = onBack) { Text("Retour") }
+        }
+    }
+}
