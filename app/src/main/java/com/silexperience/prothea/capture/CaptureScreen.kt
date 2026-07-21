@@ -5,6 +5,7 @@ import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.Preview
@@ -35,6 +36,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -109,6 +111,16 @@ fun CaptureScreen(vm: ScanViewModel, onDone: () -> Unit) {
 
         // ---- Flux camera (rebind automatique au changement de camera) ----
         val previewView = remember { PreviewView(context) }
+        var depthOverlay by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
+        val analysisExecutor = remember { java.util.concurrent.Executors.newSingleThreadExecutor() }
+        var lastInferenceAt by remember { mutableStateOf(0L) }
+
+        val imageAnalysis = remember {
+            ImageAnalysis.Builder()
+                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                .build()
+        }
+
         androidx.compose.runtime.LaunchedEffect(cameraSelector, hasCamera) {
             if (!hasCamera) return@LaunchedEffect
             val provider = ProcessCameraProvider.getInstance(context).get()
@@ -116,12 +128,58 @@ fun CaptureScreen(vm: ScanViewModel, onDone: () -> Unit) {
                 it.setSurfaceProvider(previewView.surfaceProvider)
             }
             provider.unbindAll()
-            provider.bindToLifecycle(lifecycleOwner, cameraSelector, preview, imageCapture)
+            if (useFrontCamera && vm.depthEstimator.available) {
+                // Camera frontale : estimation de profondeur ML ~3 fois/s
+                imageAnalysis.setAnalyzer(analysisExecutor) { proxy ->
+                    val now = System.currentTimeMillis()
+                    if (now - lastInferenceAt > 300) {
+                        lastInferenceAt = now
+                        runCatching {
+                            var bmp = proxy.toBitmap()
+                            val rot = proxy.imageInfo.rotationDegrees
+                            if (rot != 0) {
+                                val m = android.graphics.Matrix().apply { postRotate(rot.toFloat()) }
+                                bmp = android.graphics.Bitmap.createBitmap(
+                                    bmp, 0, 0, bmp.width, bmp.height, m, true)
+                            }
+                            // Miroir : la frontale affiche une image inversee
+                            val mirror = android.graphics.Matrix().apply { preScale(-1f, 1f) }
+                            bmp = android.graphics.Bitmap.createBitmap(
+                                bmp, 0, 0, bmp.width, bmp.height, mirror, true)
+                            vm.depthEstimator.estimate(bmp)?.let { result ->
+                                vm.lastDepth = result
+                                depthOverlay = com.silexperience.prothea.depth.DepthEstimator.colorize(result)
+                            }
+                        }
+                    }
+                    proxy.close()
+                }
+                provider.bindToLifecycle(
+                    lifecycleOwner, cameraSelector, preview, imageCapture, imageAnalysis)
+            } else {
+                imageAnalysis.clearAnalyzer()
+                vm.lastDepth = null
+                depthOverlay = null
+                provider.bindToLifecycle(lifecycleOwner, cameraSelector, preview, imageCapture)
+            }
         }
         AndroidView(
             factory = { previewView },
             modifier = Modifier.fillMaxSize()
         )
+
+        // ---- Apercu profondeur ML (camera frontale) ----
+        depthOverlay?.let { bmp ->
+            androidx.compose.foundation.Image(
+                bitmap = bmp.asImageBitmap(),
+                contentDescription = "Apercu profondeur",
+                alpha = 0.85f,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 24.dp, bottom = 220.dp)
+                    .size(140.dp)
+            )
+        }
 
         // ---- Bouton switch camera (haut droite) ----
         OutlinedButton(
@@ -132,7 +190,7 @@ fun CaptureScreen(vm: ScanViewModel, onDone: () -> Unit) {
         }
         if (useFrontCamera) {
             Text(
-                "Mode auto-scan : tenez le telephone a bout de bras et tournez lentement sur vous-meme",
+                "Mode auto-scan : tenez le telephone a bout de bras et tournez lentement sur vous-meme. La profondeur est estimee par IA (relative, sans echelle metrique).",
                 color = Color.White,
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.align(Alignment.TopCenter)
@@ -172,9 +230,12 @@ fun CaptureScreen(vm: ScanViewModel, onDone: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             val arState = vm.arCore.state
-            val arLabel = if (useFrontCamera)
-                "Nuage 3D en pause (profondeur = camera arriere) — repassez en camera arriere pour le mesh"
-            else when (arState) {
+            val arLabel = if (useFrontCamera) {
+                if (vm.depthEstimator.available)
+                    "Profondeur ML active (relative) — apercu en bas a droite, carte PNG jointe a chaque photo"
+                else
+                    "Modele de profondeur ML absent — photos seules"
+            } else when (arState) {
                 ArCoreEngine.State.READY ->
                     if (vm.arCore.depthSupported)
                         "ARCore actif · profondeur OK · $cloudPoints pts"

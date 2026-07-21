@@ -4,6 +4,7 @@ import android.app.Application
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.silexperience.prothea.depth.DepthEstimator
 import com.silexperience.prothea.export.PlyExporter
 import com.silexperience.prothea.storage.SessionManager
 import kotlinx.coroutines.Dispatchers
@@ -16,6 +17,12 @@ class ScanViewModel(app: Application) : AndroidViewModel(app) {
     val sessions = SessionManager(app)
     val arCore = ArCoreEngine(app)
     val coverage = CoverageTracker(app).also { it.listener = ::onAzimuth }
+
+    /** Estimation de profondeur ML pour la camera frontale (lazy : charge le modele une fois). */
+    val depthEstimator by lazy { DepthEstimator(app) }
+
+    /** Derniere carte de profondeur estimee (camera frontale). */
+    @Volatile var lastDepth: DepthEstimator.Result? = null
 
     private val _sessionId = MutableStateFlow<String?>(null)
     val sessionId = _sessionId.asStateFlow()
@@ -67,6 +74,8 @@ class ScanViewModel(app: Application) : AndroidViewModel(app) {
     fun onPhotoSaved(bytes: ByteArray) {
         val id = _sessionId.value ?: return
         sessions.savePhoto(id, bytes, _photoCount.value, _azimuthDeg.value)
+        // Camera frontale : on joint la carte de profondeur ML (PNG gris)
+        lastDepth?.let { sessions.saveDepthMap(id, _photoCount.value, it) }
         _photoCount.value += 1
     }
 

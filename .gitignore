@@ -2,3 +2,4 @@ local.properties
 /build
 */build
 .gradle
+app/src/main/assets/depth_model.tflite

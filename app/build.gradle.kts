@@ -54,5 +54,9 @@ dependencies {
     // Chiffrement local des metadonnees de session
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
 
+    // Estimation de profondeur monoculaire on-device (camera frontale)
+    implementation("org.tensorflow:tensorflow-lite:2.16.1")
+    implementation("org.tensorflow:tensorflow-lite-gpu:2.16.1")
+
     debugImplementation("androidx.compose.ui:ui-tooling")
 }

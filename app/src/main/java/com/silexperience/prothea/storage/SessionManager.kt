@@ -44,6 +44,18 @@ class SessionManager(private val context: Context) {
         f.writeBytes(bytes)
     }
 
+    /** Sauvegarde la carte de profondeur ML (camera frontale) en PNG gris. */
+    fun saveDepthMap(id: String, index: Int, depth: com.silexperience.prothea.depth.DepthEstimator.Result) {
+        val dir = File(root, "$id/depth").apply { mkdirs() }
+        val f = File(dir, "photo_%03d_depth.png".format(index))
+        runCatching {
+            f.outputStream().use { out ->
+                com.silexperience.prothea.depth.DepthEstimator.grayscale(depth)
+                    .compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out)
+            }
+        }
+    }
+
     fun listSessions(): List<SessionInfo> {
         val dir = root.listFiles() ?: return emptyList()
         return dir.filter { it.isDirectory }.map { s ->

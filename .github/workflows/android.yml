@@ -26,6 +26,12 @@ jobs:
       - name: Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      - name: Download depth model (MiDaS v2.1 small, TFLite)
+        run: |
+          curl -sSL --retry 3 -o app/src/main/assets/depth_model.tflite \
+            https://github.com/isl-org/MiDaS/releases/download/v2_1/model_opt.tflite
+          ls -la app/src/main/assets/
+
       - name: Build APK
         run: ./gradlew assembleRelease
 
