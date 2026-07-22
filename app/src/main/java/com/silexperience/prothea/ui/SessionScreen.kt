@@ -99,14 +99,10 @@ fun SessionScreen(vm: ScanViewModel, sessionId: String, onBack: () -> Unit,
             }
 
             if (s.hasCloud || s.photoCount >= 4) {
-                var progressMsg by remember { mutableStateOf("") }
+                val progressMsg by vm.stlProgress.collectAsState()
                 Button(
                     onClick = {
-                        vm.generateStl(
-                            sessionId,
-                            onProgress = { progressMsg = it }
-                        ) { ok, msg ->
-                            progressMsg = ""
+                        vm.generateStl(sessionId) { ok, msg ->
                             Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
                             info = vm.sessions.listSessions().firstOrNull { it.id == sessionId }
                         }

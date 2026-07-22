@@ -63,5 +63,8 @@ dependencies {
     implementation("org.tensorflow:tensorflow-lite:2.16.1")
     implementation("org.tensorflow:tensorflow-lite-gpu:2.16.1")
 
+    // Photogrammetrie on-device (SIFT, matrice essentielle, triangulation)
+    implementation("org.opencv:opencv:4.10.0")
+
     debugImplementation("androidx.compose.ui:ui-tooling")
 }

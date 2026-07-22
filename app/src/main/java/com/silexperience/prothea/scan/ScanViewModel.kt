@@ -45,6 +45,9 @@ class ScanViewModel(app: Application) : AndroidViewModel(app) {
     private val _busy = MutableStateFlow(false)
     val busy = _busy.asStateFlow()
 
+    private val _stlProgress = MutableStateFlow("")
+    val stlProgress = _stlProgress.asStateFlow()
+
     private val _lastAzimuthRaw = MutableStateFlow(0f)
 
     fun startNewSession() {
@@ -149,29 +152,26 @@ class ScanViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** Genere le STL. Si pas de nuage, le reconstruit d'abord depuis les
-     *  photos de la session (profondeur IA + azimut dans le nom de fichier). */
+    /** Genere le STL. Pipeline : photogrammetrie SfM on-device si possible,
+     *  sinon reconstruction azimut+IA, sinon nuage existant. */
     fun generateStl(id: String, onProgress: (String) -> Unit = {},
                     onDone: (Boolean, String) -> Unit) {
         _busy.value = true
         viewModelScope.launch(Dispatchers.IO) {
-            // Les callbacks UI (Toast, etat Compose) doivent revenir sur le thread principal
-            suspend fun prog(msg: String) =
-                kotlinx.coroutines.withContext(Dispatchers.Main) { onProgress(msg) }
+            val prog: (String) -> Unit = { _stlProgress.value = it }
             suspend fun done(ok: Boolean, msg: String) {
                 _busy.value = false
+                _stlProgress.value = ""
                 kotlinx.coroutines.withContext(Dispatchers.Main) { onDone(ok, msg) }
             }
 
             val cloudFile = sessions.cloudFile(id)
-            // Ne reutilise un nuage existant que s'il vient d'ARCore (fiable).
-            // Un nuage issu des photos est TOUJOURS reconstruit (derniers filtres).
+            // Reutilise un nuage fiable existant (ARCore ou SfM deja calcule)
             val cloudOk = cloudFile.exists() &&
-                sessions.cloudSource(id) == "arcore" &&
+                sessions.cloudSource(id) in listOf("arcore", "sfm") &&
                 (com.silexperience.prothea.export.MeshBuilder.loadPly(cloudFile)?.size ?: 0) >= 900
 
             if (!cloudOk) {
-                // Reconstruction retroactive du nuage depuis les photos
                 if (!depthEstimator.available) {
                     done(false, "Modele IA absent — impossible de reconstruire le nuage")
                     return@launch
@@ -184,8 +184,10 @@ class ScanViewModel(app: Application) : AndroidViewModel(app) {
                 }
                 val store = PointCloudStore(200_000)
                 val azRe = Regex("az(\\d+)")
-                // Passe 1 : inference + rayon median par photo (recalage inter-photos)
-                data class Shot(val az: Double, val res: com.silexperience.prothea.depth.DepthEstimator.Result, val medR: Float)
+                // Passe 1 : inference profondeur par photo (commun aux deux pipelines)
+                data class Shot(val file: java.io.File, val az: Double,
+                                val res: com.silexperience.prothea.depth.DepthEstimator.Result,
+                                val medR: Float)
                 val shots = ArrayList<Shot>()
                 for (f in photos) {
                     val az = azRe.find(f.name)?.groupValues?.get(1)?.toDoubleOrNull() ?: continue
@@ -194,27 +196,44 @@ class ScanViewModel(app: Application) : AndroidViewModel(app) {
                     val bmp = android.graphics.BitmapFactory.decodeFile(f.path, opts) ?: continue
                     val res = depthEstimator.estimate(bmp) ?: continue
                     val medR = com.silexperience.prothea.depth.PhotoCloudBuilder.medianSubjectRadius(res)
-                    shots.add(Shot(az.toDouble(), res, medR))
+                    shots.add(Shot(f, az.toDouble(), res, medR))
                 }
-                // Passe 2 : chaque photo est rescalee sur le rayon median global
-                val meds = shots.map { it.medR }.sorted()
-                val globalMed = meds.getOrElse(meds.size / 2) { 0.25f }
-                for (s in shots) {
-                    val scale = if (s.medR > 0.01f) (globalMed / s.medR).coerceIn(0.6f, 1.6f) else 1f
-                    com.silexperience.prothea.depth.PhotoCloudBuilder.append(
-                        s.res, s.az, store, scale = scale)
+
+                // ---- Pipeline A : PHOTOGRAMMETRIE SfM (poses reelles + fusion dense) ----
+                val sfmFiles = shots.map { it.file }
+                val depthMap = shots.associate { it.file.name to it.res }
+                val sfmPts = runCatching {
+                    com.silexperience.prothea.recon.SfmRecon.run(sfmFiles, depthMap, prog)
+                }.onFailure { _stlProgress.value = "SfM en echec (${it.javaClass.simpleName}), bascule mode simple" }
+                    .getOrNull()
+
+                if (sfmPts != null && sfmPts.size >= 30_000) {
+                    prog("Ecriture du nuage SfM (${sfmPts.size / 3} pts)…")
+                    PlyExporter.write(sfmPts, sfmPts.size / 3, cloudFile)
+                    sessions.writeCloudSource(id, "sfm")
+                } else {
+                    // ---- Pipeline B : azimut + IA (fallback) ----
+                    val meds = shots.map { it.medR }.sorted()
+                    val globalMed = meds.getOrElse(meds.size / 2) { 0.25f }
+                    for (s in shots) {
+                        val scale = if (s.medR > 0.01f) (globalMed / s.medR).coerceIn(0.6f, 1.6f) else 1f
+                        com.silexperience.prothea.depth.PhotoCloudBuilder.append(
+                            s.res, s.az, store, scale = scale)
+                    }
                 }
                 val processed = shots.size
-                if (store.size < 1000) {
-                    done(false, "Echec reconstruction : ${store.size} pts " +
-                        "(IA ok=${depthEstimator.inferenceOk} err=${depthEstimator.inferenceFailed} " +
-                        "${depthEstimator.lastError ?: ""})".take(150))
-                    return@launch
+                if (sfmPts == null || sfmPts.size < 30_000) {
+                    if (store.size < 1000) {
+                        done(false, "Echec reconstruction : ${store.size} pts " +
+                            "(IA ok=${depthEstimator.inferenceOk} err=${depthEstimator.inferenceFailed} " +
+                            "${depthEstimator.lastError ?: ""})".take(150))
+                        return@launch
+                    }
+                    prog("Ecriture du nuage (${store.size} pts)…")
+                    val (pts, n) = store.snapshot()
+                    PlyExporter.write(pts, n, cloudFile)
+                    sessions.writeCloudSource(id, "photos")
                 }
-                prog("Ecriture du nuage (${store.size} pts)…")
-                val (pts, n) = store.snapshot()
-                PlyExporter.write(pts, n, cloudFile)
-                sessions.writeCloudSource(id, "photos")
             }
 
             prog("Reconstruction de la surface…")
