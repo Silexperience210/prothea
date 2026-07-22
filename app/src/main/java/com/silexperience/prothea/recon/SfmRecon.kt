@@ -147,10 +147,11 @@ object SfmRecon {
             val mp1 = MatOfPoint2f(); mp1.fromList(p1)
             val mp2 = MatOfPoint2f(); mp2.fromList(p2)
             val mask = Mat()
-            val E = Calib3d.findEssentialMat(mp1, mp2, K, Calib3d.RANSAC, 0.999, 1.5, mask)
-            if (E.empty()) { chained = false; break }
+            val E = Calib3d.findEssentialMat(
+                mp1 as Mat, mp2 as Mat, K, Calib3d.RANSAC, 0.999, 1.5, mask)
+            if (E.total() == 0L) { chained = false; break }
             val R = Mat(); val t = Mat()
-            val inl = Calib3d.recoverPose(E, mp1, mp2, K, R, t, mask)
+            val inl = Calib3d.recoverPose(E, mp1 as Mat, mp2 as Mat, K, R, t, mask)
             if (inl < 10) { chained = false; break }
 
             // Chainage : R_{i+1} = R_rel * R_i ; C_{i+1} = C_i - R_{i+1}^T * t (||t||=1, baseline const)
@@ -178,8 +179,8 @@ object SfmRecon {
                 val q1 = Mat(cnt, 1, CvType.CV_32FC2)
                 val q2 = Mat(cnt, 1, CvType.CV_32FC2)
                 for (k in 0 until cnt) {
-                    q1.put(k, 0, inliers1[k].x.toFloat(), inliers1[k].y.toFloat())
-                    q2.put(k, 0, inliers2[k].x.toFloat(), inliers2[k].y.toFloat())
+                    q1.put(k, 0, inliers1[k].x, inliers1[k].y)
+                    q2.put(k, 0, inliers2[k].x, inliers2[k].y)
                 }
                 val pts4 = Mat()
                 Calib3d.triangulatePoints(P1, P2, q1, q2, pts4)
