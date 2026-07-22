@@ -146,12 +146,57 @@ class ScanViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** Genere le STL depuis le nuage PLY (meshing on-device). */
-    fun generateStl(id: String, onDone: (Boolean, String) -> Unit) {
+    /** Genere le STL. Si pas de nuage, le reconstruit d'abord depuis les
+     *  photos de la session (profondeur IA + azimut dans le nom de fichier). */
+    fun generateStl(id: String, onProgress: (String) -> Unit = {},
+                    onDone: (Boolean, String) -> Unit) {
         _busy.value = true
         viewModelScope.launch(Dispatchers.IO) {
+            val cloudFile = sessions.cloudFile(id)
+            val cloudOk = cloudFile.exists() &&
+                (com.silexperience.prothea.export.MeshBuilder.loadPly(cloudFile)?.size ?: 0) >= 900
+
+            if (!cloudOk) {
+                // Reconstruction retroactive du nuage depuis les photos
+                if (!depthEstimator.available) {
+                    _busy.value = false
+                    onDone(false, "Modele IA absent — impossible de reconstruire le nuage")
+                    return@launch
+                }
+                val photos = sessions.photosDir(id).listFiles()
+                    ?.filter { it.extension.equals("jpg", true) }?.sorted()
+                if (photos.isNullOrEmpty()) {
+                    _busy.value = false
+                    onDone(false, "Pas de nuage 3D ni photos dans cette session")
+                    return@launch
+                }
+                val store = PointCloudStore(200_000)
+                val azRe = Regex("az(\\d+)")
+                var processed = 0
+                for (f in photos) {
+                    val az = azRe.find(f.name)?.groupValues?.get(1)?.toDoubleOrNull() ?: continue
+                    onProgress("Analyse photo ${processed + 1}/${photos.size}…")
+                    val opts = android.graphics.BitmapFactory.Options().apply { inSampleSize = 2 }
+                    val bmp = android.graphics.BitmapFactory.decodeFile(f.path, opts) ?: continue
+                    val res = depthEstimator.estimate(bmp) ?: continue
+                    com.silexperience.prothea.depth.PhotoCloudBuilder.append(res, az.toDouble(), store)
+                    processed++
+                }
+                if (store.size < 1000) {
+                    _busy.value = false
+                    onDone(false, "Echec reconstruction : ${store.size} pts " +
+                        "(IA ok=${depthEstimator.inferenceOk} err=${depthEstimator.inferenceFailed} " +
+                        "${depthEstimator.lastError ?: ""})".take(150))
+                    return@launch
+                }
+                onProgress("Ecriture du nuage (${store.size} pts)…")
+                val (pts, n) = store.snapshot()
+                PlyExporter.write(pts, n, cloudFile)
+            }
+
+            onProgress("Reconstruction de la surface…")
             val stats = com.silexperience.prothea.export.MeshBuilder.build(
-                sessions.cloudFile(id), sessions.meshFile(id))
+                cloudFile, sessions.meshFile(id))
             _busy.value = false
             if (stats != null)
                 onDone(true, "${stats.keptPoints}/${stats.inputPoints} pts · " +

@@ -16,6 +16,11 @@ android {
         versionName = "0.1.0"
     }
 
+    // Le modele TFLite ne doit pas etre compresse dans l'APK (openFd)
+    aaptOptions {
+        noCompress("tflite")
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false

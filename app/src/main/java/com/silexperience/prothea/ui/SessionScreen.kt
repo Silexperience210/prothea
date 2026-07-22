@@ -97,17 +97,33 @@ fun SessionScreen(vm: ScanViewModel, sessionId: String, onBack: () -> Unit) {
                 }
             }
 
-            if (s.hasCloud) {
+            if (s.hasCloud || s.photoCount >= 4) {
+                var progressMsg by remember { mutableStateOf("") }
                 Button(
                     onClick = {
-                        vm.generateStl(sessionId) { ok, msg ->
+                        vm.generateStl(
+                            sessionId,
+                            onProgress = { progressMsg = it }
+                        ) { ok, msg ->
+                            progressMsg = ""
                             Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
                             info = vm.sessions.listSessions().firstOrNull { it.id == sessionId }
                         }
                     },
                     enabled = !busy,
                     modifier = Modifier.fillMaxWidth()
-                ) { Text(if (busy) "Reconstruction en cours…" else "Generer le STL (impression 3D)") }
+                ) { Text(if (busy) "Reconstruction…" else "Generer le STL (impression 3D)") }
+                if (busy && progressMsg.isNotEmpty()) {
+                    Text(progressMsg, style = MaterialTheme.typography.bodySmall)
+                }
+                if (!s.hasCloud) {
+                    Text(
+                        "Nuage reconstruit depuis les ${s.photoCount} photos (IA, echelle approx.) · " +
+                        "IA : ${vm.depthEstimator.inferenceOk} ok / ${vm.depthEstimator.inferenceFailed} err" +
+                        (vm.depthEstimator.lastError?.let { " · $it" } ?: ""),
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
             }
 
             if (s.hasMesh) {

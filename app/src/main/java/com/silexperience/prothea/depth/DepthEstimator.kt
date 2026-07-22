@@ -27,6 +27,16 @@ class DepthEstimator(context: Context) {
     private var interpreter: Interpreter? = null
     private var gpuDelegate: GpuDelegate? = null
 
+    /** Derniere erreur d'inference (diagnostic visible dans l'UI). */
+    @Volatile var lastError: String? = null
+        private set
+
+    /** Compteurs d'inferences (diagnostic). */
+    @Volatile var inferenceOk = 0
+        private set
+    @Volatile var inferenceFailed = 0
+        private set
+
     private val inputSize = 256
 
     init {
@@ -80,22 +90,33 @@ class DepthEstimator(context: Context) {
             val outShape = tflite.getOutputTensor(0).shape()
             val h = outShape.getOrElse(1) { inputSize }
             val w = outShape.getOrElse(2) { inputSize }
-            val output = Array(1) { Array(h) { Array(w) { FloatArray(1) } } }
-            tflite.run(input, output)
+            // Sortie [1,H,W,1] ou [1,H,W] selon la conversion du modele
+            val flat = FloatArray(h * w)
+            if (outShape.size == 4) {
+                val o4 = Array(1) { Array(h) { Array(w) { FloatArray(1) } } }
+                tflite.run(input, o4)
+                for (y in 0 until h) for (x in 0 until w) flat[y * w + x] = o4[0][y][x][0]
+            } else {
+                val o3 = Array(1) { Array(h) { FloatArray(w) } }
+                tflite.run(input, o3)
+                for (y in 0 until h) for (x in 0 until w) flat[y * w + x] = o3[0][y][x]
+            }
 
             // Normalisation min-max -> 0..1 (MiDaS : valeur haute = proche)
             var min = Float.MAX_VALUE; var max = -Float.MAX_VALUE
-            val flat = FloatArray(h * w)
-            for (y in 0 until h) for (x in 0 until w) {
-                val v = output[0][y][x][0]
-                flat[y * w + x] = v
+            for (v in flat) {
                 if (v < min) min = v
                 if (v > max) max = v
             }
             val range = (max - min).takeIf { it > 1e-6f } ?: 1f
             for (i in flat.indices) flat[i] = (flat[i] - min) / range
+            inferenceOk++
             Result(flat, w, h)
-        }.onFailure { Log.w(TAG, "inference: ${it.message}") }.getOrNull()
+        }.onFailure {
+            inferenceFailed++
+            lastError = it.javaClass.simpleName + ": " + it.message
+            Log.w(TAG, "inference: ${it.message}")
+        }.getOrNull()
     }
 
     fun close() {
