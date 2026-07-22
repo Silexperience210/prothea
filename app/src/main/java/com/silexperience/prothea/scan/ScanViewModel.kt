@@ -142,7 +142,8 @@ class ScanViewModel(app: Application) : AndroidViewModel(app) {
 
     fun exportSession(id: String, dest: Uri, onDone: (Boolean) -> Unit) {
         viewModelScope.launch(Dispatchers.IO) {
-            onDone(sessions.exportZip(id, dest))
+            val ok = sessions.exportZip(id, dest)
+            kotlinx.coroutines.withContext(Dispatchers.Main) { onDone(ok) }
         }
     }
 
@@ -152,6 +153,14 @@ class ScanViewModel(app: Application) : AndroidViewModel(app) {
                     onDone: (Boolean, String) -> Unit) {
         _busy.value = true
         viewModelScope.launch(Dispatchers.IO) {
+            // Les callbacks UI (Toast, etat Compose) doivent revenir sur le thread principal
+            suspend fun prog(msg: String) =
+                kotlinx.coroutines.withContext(Dispatchers.Main) { onProgress(msg) }
+            suspend fun done(ok: Boolean, msg: String) {
+                _busy.value = false
+                kotlinx.coroutines.withContext(Dispatchers.Main) { onDone(ok, msg) }
+            }
+
             val cloudFile = sessions.cloudFile(id)
             val cloudOk = cloudFile.exists() &&
                 (com.silexperience.prothea.export.MeshBuilder.loadPly(cloudFile)?.size ?: 0) >= 900
@@ -159,15 +168,13 @@ class ScanViewModel(app: Application) : AndroidViewModel(app) {
             if (!cloudOk) {
                 // Reconstruction retroactive du nuage depuis les photos
                 if (!depthEstimator.available) {
-                    _busy.value = false
-                    onDone(false, "Modele IA absent — impossible de reconstruire le nuage")
+                    done(false, "Modele IA absent — impossible de reconstruire le nuage")
                     return@launch
                 }
                 val photos = sessions.photosDir(id).listFiles()
                     ?.filter { it.extension.equals("jpg", true) }?.sorted()
                 if (photos.isNullOrEmpty()) {
-                    _busy.value = false
-                    onDone(false, "Pas de nuage 3D ni photos dans cette session")
+                    done(false, "Pas de nuage 3D ni photos dans cette session")
                     return@launch
                 }
                 val store = PointCloudStore(200_000)
@@ -175,7 +182,7 @@ class ScanViewModel(app: Application) : AndroidViewModel(app) {
                 var processed = 0
                 for (f in photos) {
                     val az = azRe.find(f.name)?.groupValues?.get(1)?.toDoubleOrNull() ?: continue
-                    onProgress("Analyse photo ${processed + 1}/${photos.size}…")
+                    prog("Analyse photo ${processed + 1}/${photos.size}…")
                     val opts = android.graphics.BitmapFactory.Options().apply { inSampleSize = 2 }
                     val bmp = android.graphics.BitmapFactory.decodeFile(f.path, opts) ?: continue
                     val res = depthEstimator.estimate(bmp) ?: continue
@@ -183,32 +190,31 @@ class ScanViewModel(app: Application) : AndroidViewModel(app) {
                     processed++
                 }
                 if (store.size < 1000) {
-                    _busy.value = false
-                    onDone(false, "Echec reconstruction : ${store.size} pts " +
+                    done(false, "Echec reconstruction : ${store.size} pts " +
                         "(IA ok=${depthEstimator.inferenceOk} err=${depthEstimator.inferenceFailed} " +
                         "${depthEstimator.lastError ?: ""})".take(150))
                     return@launch
                 }
-                onProgress("Ecriture du nuage (${store.size} pts)…")
+                prog("Ecriture du nuage (${store.size} pts)…")
                 val (pts, n) = store.snapshot()
                 PlyExporter.write(pts, n, cloudFile)
             }
 
-            onProgress("Reconstruction de la surface…")
+            prog("Reconstruction de la surface…")
             val stats = com.silexperience.prothea.export.MeshBuilder.build(
                 cloudFile, sessions.meshFile(id))
-            _busy.value = false
             if (stats != null)
-                onDone(true, "${stats.keptPoints}/${stats.inputPoints} pts · " +
+                done(true, "${stats.keptPoints}/${stats.inputPoints} pts · " +
                         "${stats.triangles} triangles · hauteur ${stats.heightMm} mm")
             else
-                onDone(false, "Nuage insuffisant pour reconstruire une surface")
+                done(false, "Nuage insuffisant pour reconstruire une surface")
         }
     }
 
     fun exportStl(id: String, dest: Uri, onDone: (Boolean) -> Unit) {
         viewModelScope.launch(Dispatchers.IO) {
-            onDone(sessions.exportFile(sessions.meshFile(id), dest))
+            val ok = sessions.exportFile(sessions.meshFile(id), dest)
+            kotlinx.coroutines.withContext(Dispatchers.Main) { onDone(ok) }
         }
     }
 }

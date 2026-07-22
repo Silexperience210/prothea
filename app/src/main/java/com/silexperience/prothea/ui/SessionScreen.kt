@@ -33,7 +33,8 @@ import java.util.Date
 import java.util.Locale
 
 @Composable
-fun SessionScreen(vm: ScanViewModel, sessionId: String, onBack: () -> Unit) {
+fun SessionScreen(vm: ScanViewModel, sessionId: String, onBack: () -> Unit,
+                  onViewMesh: (String) -> Unit = {}) {
     val context = LocalContext.current
     val info0 = remember(sessionId) {
         vm.sessions.listSessions().firstOrNull { it.id == sessionId }
@@ -127,6 +128,10 @@ fun SessionScreen(vm: ScanViewModel, sessionId: String, onBack: () -> Unit) {
             }
 
             if (s.hasMesh) {
+                Button(
+                    onClick = { onViewMesh(sessionId) },
+                    Modifier.fillMaxWidth()
+                ) { Text("Visualiser le STL en 3D") }
                 Button(
                     onClick = { stlLauncher.launch("$sessionId.stl") },
                     Modifier.fillMaxWidth()

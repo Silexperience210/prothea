@@ -41,6 +41,14 @@ class MainActivity : ComponentActivity() {
                         SessionScreen(
                             vm = vm,
                             sessionId = back.arguments?.getString("id") ?: "",
+                            onBack = { nav.popBackStack() },
+                            onViewMesh = { id -> nav.navigate("viewer/$id") }
+                        )
+                    }
+                    composable("viewer/{id}") { back ->
+                        StlViewerScreen(
+                            vm = vm,
+                            sessionId = back.arguments?.getString("id") ?: "",
                             onBack = { nav.popBackStack() }
                         )
                     }
