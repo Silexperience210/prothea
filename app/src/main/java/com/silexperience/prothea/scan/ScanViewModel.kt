@@ -120,6 +120,8 @@ class ScanViewModel(app: Application) : AndroidViewModel(app) {
             best?.let {
                 val (pts, n) = it.snapshot()
                 PlyExporter.write(pts, n, sessions.cloudFile(id))
+                sessions.writeCloudSource(id,
+                    if (it === arCore.cloud) "arcore" else "photos")
             }
             sessions.writeMeta(
                 id, notes,
@@ -162,7 +164,10 @@ class ScanViewModel(app: Application) : AndroidViewModel(app) {
             }
 
             val cloudFile = sessions.cloudFile(id)
+            // Ne reutilise un nuage existant que s'il vient d'ARCore (fiable).
+            // Un nuage issu des photos est TOUJOURS reconstruit (derniers filtres).
             val cloudOk = cloudFile.exists() &&
+                sessions.cloudSource(id) == "arcore" &&
                 (com.silexperience.prothea.export.MeshBuilder.loadPly(cloudFile)?.size ?: 0) >= 900
 
             if (!cloudOk) {
@@ -198,6 +203,7 @@ class ScanViewModel(app: Application) : AndroidViewModel(app) {
                 prog("Ecriture du nuage (${store.size} pts)…")
                 val (pts, n) = store.snapshot()
                 PlyExporter.write(pts, n, cloudFile)
+                sessions.writeCloudSource(id, "photos")
             }
 
             prog("Reconstruction de la surface…")

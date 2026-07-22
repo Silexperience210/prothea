@@ -41,6 +41,13 @@ class SessionManager(private val context: Context) {
     fun cloudFile(id: String) = File(root, "$id/cloud.ply")
     fun meshFile(id: String) = File(root, "$id/mesh.stl")
 
+    /** Marqueur d'origine du nuage ("arcore" = echelle metrique, "photos" = IA approx). */
+    fun writeCloudSource(id: String, source: String) {
+        File(root, "$id/cloud.src").writeText(source)
+    }
+    fun cloudSource(id: String): String? =
+        File(root, "$id/cloud.src").takeIf { it.exists() }?.readText()?.trim()
+
     /** Copie un fichier de session vers une destination SAF. */
     fun exportFile(file: File, dest: Uri): Boolean = runCatching {
         context.contentResolver.openOutputStream(dest)?.use { out ->

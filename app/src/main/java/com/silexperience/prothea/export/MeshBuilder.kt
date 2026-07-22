@@ -63,7 +63,7 @@ object MeshBuilder {
         }
         val rMed = median(radii.copyOf())
         // Garde les points plausibles du sujet (vire murs, sol lointain, mobilier)
-        val keep = BooleanArray(n) { i -> radii[i] in 0.02f..(rMed * 2.2f) }
+        val keep = BooleanArray(n) { i -> radii[i] in 0.02f..(rMed * 1.6f) }
         var kept = 0
         for (b in keep) if (b) kept++
         if (kept < 300) return null
@@ -76,8 +76,7 @@ object MeshBuilder {
 
         val nTheta = 96
         val nY = (height / 0.004f).toInt().coerceIn(32, 160) // ~4 mm vertical
-        val sums = Array(nY) { FloatArray(nTheta) }
-        val counts = Array(nY) { IntArray(nTheta) }
+        val bins = HashMap<Int, ArrayList<Float>>(8192)
 
         for (i in 0 until n) {
             if (!keep[i]) continue
@@ -85,21 +84,26 @@ object MeshBuilder {
             var ti = (((theta + Math.PI) / (2*Math.PI)) * nTheta).toInt() % nTheta
             if (ti < 0) ti += nTheta
             val yi = (((ys[i]-yMin) / height) * (nY-1)).toInt().coerceIn(0, nY-1)
-            sums[yi][ti] += radii[i]
-            counts[yi][ti]++
+            val key = yi * nTheta + ti
+            bins.getOrPut(key) { ArrayList(8) }.add(radii[i])
         }
 
+        // Agregation par PERCENTILE 25 : la surface du sujet est le point le
+        // plus proche sur chaque rayon — robuste au fond et au bruit MiDaS
         val grid = Array(nY) { FloatArray(nTheta) { -1f } }
-        for (y in 0 until nY) for (t in 0 until nTheta) {
-            if (counts[y][t] > 0) grid[y][t] = sums[y][t] / counts[y][t]
+        for ((key, values) in bins) {
+            values.sort()
+            val p25 = values[(values.size * 0.25f).toInt().coerceIn(0, values.size - 1)]
+            grid[key / nTheta][key % nTheta] = p25.coerceIn(rMed * 0.3f, rMed * 1.7f)
         }
 
         // Interpolation des trous : lignes theta d'abord, puis recopie verticale
         for (y in 0 until nY) fillRowCircular(grid[y])
         fillRowsVertical(grid)
 
-        // Lissage (2 passes)
-        repeat(2) { smooth(grid, nTheta) }
+        // Filtre MEDIAN circulaire (tue les pics "herisson"), puis lissage
+        medianFilter(grid, nTheta)
+        repeat(3) { smooth(grid, nTheta) }
 
         // ---- 3. Triangulation + STL binaire (mm) ----
         val tris = ArrayList<FloatArray>(nTheta * nY * 2)
@@ -179,6 +183,21 @@ object MeshBuilder {
         var last = up
         for (y in up+1 until nY) {
             if (rowEmpty(y)) grid[y] = grid[last].copyOf() else last = y
+        }
+    }
+
+    /** Mediane 3x3 (theta circulaire) : elimine les pics isoles. */
+    private fun medianFilter(grid: Array<FloatArray>, nTheta: Int) {
+        val nY = grid.size
+        val src = grid.map { it.copyOf() }
+        val window = FloatArray(9)
+        for (y in 1 until nY-1) for (t in 0 until nTheta) {
+            var k = 0
+            for (dy in -1..1) for (dt in -1..1) {
+                window[k++] = src[y+dy][(t+dt+nTheta)%nTheta]
+            }
+            window.sort(0, 9)
+            grid[y][t] = window[4]
         }
     }
 

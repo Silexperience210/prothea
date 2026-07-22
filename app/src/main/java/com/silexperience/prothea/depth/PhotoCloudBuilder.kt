@@ -45,16 +45,18 @@ object PhotoCloudBuilder {
             var x = 0
             while (x < w) {
                 val d = depth.depth[y * w + x] // 0..1, 1 = proche
-                if (d > 0.25f) { // ignore l'arriere-plan lointain
+                val u = x.toFloat() / w - 0.5f
+                val v = y.toFloat() / h
+                // Garde uniquement la zone centrale de l'image (le sujet) :
+                // seuil haut sur la proximite + marges laterales/verticales
+                if (d > 0.50f && u in -0.35f..0.35f && v in 0.10f..0.90f) {
                     // Profondeur relative -> rayon autour de l'axe du sujet.
                     // Le sujet (proche, d~1) donne un petit rayon ; le fond est ecarte.
-                    val r = (distanceM * (1.15f - 0.75f * d)).coerceIn(0.05f, distanceM * 1.5f)
-                    // Decalage angulaire selon la position horizontale du pixel
-                    val u = x.toFloat() / w - 0.5f
+                    val r = (distanceM * (1.25f - 0.90f * d)).coerceIn(0.04f, distanceM)
                     val angle = baseAngle + u * 0.7 // ~ +/-20 degres de champ lateral
                     val px = r * sin(angle).toFloat()
                     val pz = r * cos(angle).toFloat()
-                    val py = (0.5f - y.toFloat() / h) * heightSpan
+                    val py = (0.5f - v) * heightSpan
                     store.add(px, py, pz)
                 }
                 x += step
