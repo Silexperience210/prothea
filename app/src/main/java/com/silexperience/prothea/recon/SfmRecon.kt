@@ -148,7 +148,8 @@ object SfmRecon {
             val mp2 = MatOfPoint2f(); mp2.fromList(p2)
             val mask = Mat()
             val E = Calib3d.findEssentialMat(
-                mp1 as Mat, mp2 as Mat, K, Calib3d.RANSAC, 0.999, 1.5, mask)
+                mp1 as Mat, mp2 as Mat, focal,
+                org.opencv.core.Point(cx, cy), Calib3d.RANSAC, 0.999, 1.5)
             if (E.total() == 0L) { chained = false; break }
             val R = Mat(); val t = Mat()
             val inl = Calib3d.recoverPose(E, mp1 as Mat, mp2 as Mat, K, R, t, mask)
