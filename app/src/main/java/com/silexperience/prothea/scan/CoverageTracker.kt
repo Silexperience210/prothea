@@ -45,12 +45,18 @@ class CoverageTracker(
     }
 
     fun markSectorFor(azimuth: Float) {
-        val ref = referenceAzimuth ?: return
+        sectorFor(azimuth)?.let { covered[it] = true }
+    }
+
+    /** Secteur correspondant a un azimut (null si non calibre). */
+    fun sectorFor(azimuth: Float): Int? {
+        val ref = referenceAzimuth ?: return null
         var rel = (azimuth - ref) % (2f * PI.toFloat())
         if (rel < 0) rel += 2f * PI.toFloat()
-        val idx = (rel / (2f * PI.toFloat()) * sectors).roundToInt() % sectors
-        covered[idx] = true
+        return (rel / (2f * PI.toFloat()) * sectors).roundToInt() % sectors
     }
+
+    fun isCovered(sector: Int?): Boolean = sector != null && covered[sector]
 
     override fun onSensorChanged(event: SensorEvent) {
         val rot = FloatArray(9)

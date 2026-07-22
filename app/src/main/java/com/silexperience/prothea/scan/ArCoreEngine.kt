@@ -38,6 +38,16 @@ class ArCoreEngine(private val context: Context) {
     @Volatile var depthSupported = false
         private set
 
+    // Diagnostics (visibles dans l'UI pour comprendre un nuage a 0 pts)
+    @Volatile var depthFramesOk = 0
+        private set
+    @Volatile var depthFramesFailed = 0
+        private set
+    @Volatile var lastDepthError: String? = null
+        private set
+    @Volatile var tracking = false
+        private set
+
     private var session: Session? = null
     private var thread: HandlerThread? = null
     private var handler: Handler? = null
@@ -106,9 +116,20 @@ class ArCoreEngine(private val context: Context) {
             val frame = s.update()
             val cam = frame.camera
             if (cam.trackingState == com.google.ar.core.TrackingState.TRACKING) {
+                tracking = true
                 val p = cam.pose
                 lastPose = floatArrayOf(p.tx(), p.ty(), p.tz(), p.qx(), p.qy(), p.qz(), p.qw())
-                if (depthSupported) accumulateDepth(frame, cam)
+                if (depthSupported) {
+                    try {
+                        accumulateDepth(frame, cam)
+                        depthFramesOk++
+                    } catch (t: Throwable) {
+                        depthFramesFailed++
+                        lastDepthError = t.javaClass.simpleName + ": " + t.message
+                    }
+                }
+            } else {
+                tracking = false
             }
         } catch (t: Throwable) {
             Log.w(TAG, "update() : ${t.message}")

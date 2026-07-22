@@ -69,14 +69,49 @@ fun CaptureScreen(vm: ScanViewModel, onDone: () -> Unit) {
     val calibrated by vm.calibrated.collectAsState()
     val cloudPoints by vm.cloudPoints.collectAsState()
     val busy by vm.busy.collectAsState()
+    val autoCapture by vm.autoCapture.collectAsState()
 
     val imageCapture = remember { ImageCapture.Builder().build() }
     var capturing by remember { mutableStateOf(false) }
+
+    // Fonction de capture (manuelle ou auto)
+    fun performCapture() {
+        if (capturing) return
+        capturing = true
+        val tmp = File.createTempFile("cap", ".jpg", context.cacheDir)
+        val out = ImageCapture.OutputFileOptions.Builder(tmp).build()
+        imageCapture.takePicture(
+            out, ContextCompat.getMainExecutor(context),
+            object : ImageCapture.OnImageSavedCallback {
+                override fun onImageSaved(r: ImageCapture.OutputFileResults) {
+                    vm.onPhotoSaved(tmp.readBytes())
+                    tmp.delete()
+                    capturing = false
+                }
+                override fun onError(e: ImageCaptureException) {
+                    capturing = false
+                }
+            }
+        )
+    }
 
     // Camera arriere par defaut ; la frontale permet l'auto-scan en solo
     var useFrontCamera by remember { mutableStateOf(false) }
     val cameraSelector = if (useFrontCamera)
         CameraSelector.DEFAULT_FRONT_CAMERA else CameraSelector.DEFAULT_BACK_CAMERA
+
+    // ---- Mode scan : capture automatique a l'entree d'un secteur non couvert ----
+    androidx.compose.runtime.LaunchedEffect(calibrated, autoCapture) {
+        while (calibrated && autoCapture) {
+            kotlinx.coroutines.delay(300)
+            if (capturing || busy) continue
+            val sector = vm.sectorNow()
+            if (sector != null && !vm.coverage.isCovered(sector)) {
+                performCapture()
+                kotlinx.coroutines.delay(900) // cooldown entre deux secteurs
+            }
+        }
+    }
 
     // ARCore utilise sa propre camera (arriere) : on le coupe en mode
     // camera avant pour ne pas accumuler un nuage incoherent avec l'aperçu
@@ -181,6 +216,16 @@ fun CaptureScreen(vm: ScanViewModel, onDone: () -> Unit) {
             )
         }
 
+        // ---- Bouton mode auto / manuel (haut gauche) ----
+        if (calibrated) {
+            OutlinedButton(
+                onClick = { vm.toggleAutoCapture() },
+                modifier = Modifier.align(Alignment.TopStart).padding(top = 48.dp, start = 16.dp)
+            ) {
+                Text(if (autoCapture) "Mode manuel" else "Mode auto")
+            }
+        }
+
         // ---- Bouton switch camera (haut droite) ----
         OutlinedButton(
             onClick = { useFrontCamera = !useFrontCamera },
@@ -237,9 +282,13 @@ fun CaptureScreen(vm: ScanViewModel, onDone: () -> Unit) {
                     "Modele de profondeur ML absent — photos seules"
             } else when (arState) {
                 ArCoreEngine.State.READY ->
-                    if (vm.arCore.depthSupported)
-                        "ARCore actif · profondeur OK · $cloudPoints pts"
-                    else "ARCore actif (sans capteur de profondeur)"
+                    if (vm.arCore.depthSupported) {
+                        val d = vm.arCore
+                        if (cloudPoints > 0)
+                            "ARCore actif · profondeur OK · $cloudPoints pts"
+                        else
+                            "ARCore ok · 0 pts — tracking=${d.tracking} depthOk=${d.depthFramesOk} echecs=${d.depthFramesFailed} ${d.lastDepthError ?: ""}".take(120)
+                    } else "ARCore actif (sans capteur de profondeur)"
                 ArCoreEngine.State.STARTING -> "ARCore : demarrage…"
                 ArCoreEngine.State.UNSUPPORTED -> "ARCore indisponible — mode photos seules"
                 ArCoreEngine.State.ERROR -> "ARCore en erreur — mode photos seules"
@@ -253,8 +302,10 @@ fun CaptureScreen(vm: ScanViewModel, onDone: () -> Unit) {
             Text(
                 if (!calibrated)
                     "Cadrez le buste a 50-70 cm, puis visez"
+                else if (autoCapture)
+                    "SCAN AUTO : tournez lentement — chaque nouveau secteur declenche une photo · ${vm.coverage.covered.count { it }}/${vm.coverage.sectors} · $photoCount photos"
                 else
-                    "Tournez lentement autour · ${vm.coverage.covered.count { it }}/${vm.coverage.sectors} secteurs · $photoCount photos",
+                    "Tournez lentement + Capturer dans chaque secteur · ${vm.coverage.covered.count { it }}/${vm.coverage.sectors} secteurs · $photoCount photos",
                 color = Color.White,
                 style = MaterialTheme.typography.bodyMedium
             )
@@ -269,32 +320,13 @@ fun CaptureScreen(vm: ScanViewModel, onDone: () -> Unit) {
                     Button(onClick = { vm.calibrate() }) { Text("Viser le buste") }
                 } else {
                     Button(
-                        onClick = {
-                            if (capturing) return@Button
-                            capturing = true
-                            val tmp = File.createTempFile("cap", ".jpg", context.cacheDir)
-                            val out = ImageCapture.OutputFileOptions.Builder(tmp).build()
-                            imageCapture.takePicture(
-                                out, ContextCompat.getMainExecutor(context),
-                                object : ImageCapture.OnImageSavedCallback {
-                                    override fun onImageSaved(
-                                        r: ImageCapture.OutputFileResults) {
-                                        vm.onPhotoSaved(tmp.readBytes())
-                                        tmp.delete()
-                                        capturing = false
-                                    }
-                                    override fun onError(e: ImageCaptureException) {
-                                        capturing = false
-                                    }
-                                }
-                            )
-                        },
+                        onClick = { performCapture() },
                         enabled = !capturing && !busy
                     ) { Text(if (capturing) "…" else "Capturer") }
 
                     OutlinedButton(
                         onClick = { vm.finishSession(); onDone() },
-                        enabled = !busy && photoCount >= 8
+                        enabled = !busy && photoCount >= 3
                     ) { Text(if (busy) "Finalisation…" else "Terminer") }
                 }
             }

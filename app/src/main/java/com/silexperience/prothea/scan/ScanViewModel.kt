@@ -60,10 +60,18 @@ class ScanViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** Capture automatique quand on entre dans un secteur non couvert (mode scan). */
+    private val _autoCapture = MutableStateFlow(true)
+    val autoCapture = _autoCapture.asStateFlow()
+
+    fun toggleAutoCapture() { _autoCapture.value = !_autoCapture.value }
+
+    /** Secteur actuellement vise (null avant calibrage). */
+    fun sectorNow(): Int? = coverage.sectorFor(_lastAzimuthRaw.value)
+
     fun onAzimuth(a: Float) {
         _lastAzimuthRaw.value = a
         _azimuthDeg.value = CoverageTracker.azimuthDeg(a)
-        if (_calibrated.value) coverage.markSectorFor(a)
     }
 
     fun calibrate() {
@@ -74,6 +82,8 @@ class ScanViewModel(app: Application) : AndroidViewModel(app) {
     fun onPhotoSaved(bytes: ByteArray) {
         val id = _sessionId.value ?: return
         sessions.savePhoto(id, bytes, _photoCount.value, _azimuthDeg.value)
+        // Le secteur n'est valide QUE si une photo y a ete prise
+        coverage.markSectorFor(_lastAzimuthRaw.value)
         // Camera frontale : on joint la carte de profondeur ML (PNG gris)
         lastDepth?.let { sessions.saveDepthMap(id, _photoCount.value, it) }
         _photoCount.value += 1
