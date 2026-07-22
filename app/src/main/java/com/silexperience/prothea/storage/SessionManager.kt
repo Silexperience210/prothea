@@ -26,6 +26,7 @@ class SessionManager(private val context: Context) {
         val photoCount: Int,
         val pointCount: Long,
         val hasCloud: Boolean,
+        val hasMesh: Boolean = false,
         val dateMillis: Long
     )
 
@@ -38,6 +39,14 @@ class SessionManager(private val context: Context) {
     fun sessionDir(id: String) = File(root, id)
     fun photosDir(id: String) = File(root, "$id/photos")
     fun cloudFile(id: String) = File(root, "$id/cloud.ply")
+    fun meshFile(id: String) = File(root, "$id/mesh.stl")
+
+    /** Copie un fichier de session vers une destination SAF. */
+    fun exportFile(file: File, dest: Uri): Boolean = runCatching {
+        context.contentResolver.openOutputStream(dest)?.use { out ->
+            file.inputStream().use { it.copyTo(out) }
+        } ?: throw IllegalStateException("SAF output null")
+    }.isSuccess
 
     fun savePhoto(id: String, bytes: ByteArray, index: Int, azimuthDeg: Double) {
         val f = File(photosDir(id), "photo_%03d_az%03d.jpg".format(index, azimuthDeg.toInt()))
@@ -63,11 +72,13 @@ class SessionManager(private val context: Context) {
                 it.extension.equals("jpg", true)
             } ?: 0
             val cloud = File(s, "cloud.ply")
+            val mesh = File(s, "mesh.stl")
             SessionInfo(
                 id = s.name,
                 photoCount = photos,
                 pointCount = if (cloud.exists()) countPlyPoints(cloud) else 0,
                 hasCloud = cloud.exists(),
+                hasMesh = mesh.exists(),
                 dateMillis = s.name.removePrefix("scan_").toLongOrNull() ?: 0L
             )
         }.sortedByDescending { it.dateMillis }

@@ -38,12 +38,11 @@ Un workflow GitHub Actions compile l'APK à chaque push (onglet *Actions* → ar
 
 ## Roadmap
 
-- [ ] Reconstruction surfacique on-device (OpenMVS via NDK) : PLY → STL directement dans l'app
+- [x] Reconstruction surfacique on-device : PLY → **STL binaire (mm)** directement dans l'app (nettoyage du décor + reconstruction cylindrique + capuchons, prêt pour PrusaSlicer/Bambu Studio)
+- [ ] Photogrammétrie on-device (OpenMVS via NDK) pour précision métrologique depuis les photos
 - [ ] Mode miroir : scanner le côté sain et symétriser pour la prothèse du côté opéré
 - [ ] Génération paramétrique de la coque prothèse (offset de surface + épaisseur)
 - [ ] Guide de pose AR (bras à 45°, respiration à mi-expiration)
 - [ ] Partenariat clinique (Ligue contre le cancer) pour validation métrologique
 
-## Avertissement
-
-Prothea est un outil d'aide à la conception, **pas un dispositif médical certifié**. Toute prothèse définitive doit être validée par un prothésiste/orthoprothésiste diplômé.
+## Av

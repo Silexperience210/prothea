@@ -122,4 +122,25 @@ class ScanViewModel(app: Application) : AndroidViewModel(app) {
             onDone(sessions.exportZip(id, dest))
         }
     }
+
+    /** Genere le STL depuis le nuage PLY (meshing on-device). */
+    fun generateStl(id: String, onDone: (Boolean, String) -> Unit) {
+        _busy.value = true
+        viewModelScope.launch(Dispatchers.IO) {
+            val stats = com.silexperience.prothea.export.MeshBuilder.build(
+                sessions.cloudFile(id), sessions.meshFile(id))
+            _busy.value = false
+            if (stats != null)
+                onDone(true, "${stats.keptPoints}/${stats.inputPoints} pts · " +
+                        "${stats.triangles} triangles · hauteur ${stats.heightMm} mm")
+            else
+                onDone(false, "Nuage insuffisant pour reconstruire une surface")
+        }
+    }
+
+    fun exportStl(id: String, dest: Uri, onDone: (Boolean) -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            onDone(sessions.exportFile(sessions.meshFile(id), dest))
+        }
+    }
 }

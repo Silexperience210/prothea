@@ -18,7 +18,11 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -31,7 +35,7 @@ import java.util.Locale
 @Composable
 fun SessionScreen(vm: ScanViewModel, sessionId: String, onBack: () -> Unit) {
     val context = LocalContext.current
-    val info = remember(sessionId) {
+    val info0 = remember(sessionId) {
         vm.sessions.listSessions().firstOrNull { it.id == sessionId }
     }
 
@@ -48,6 +52,23 @@ fun SessionScreen(vm: ScanViewModel, sessionId: String, onBack: () -> Unit) {
             }
         }
     }
+
+    val stlLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("model/stl")
+    ) { uri ->
+        uri?.let {
+            vm.exportStl(sessionId, it) { ok ->
+                Toast.makeText(
+                    context,
+                    if (ok) "STL exporte" else "Echec de l'export STL",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        }
+    }
+
+    var info by remember { mutableStateOf(info0) }
+    val busy by vm.busy.collectAsState()
 
     Column(
         Modifier.fillMaxSize().padding(24.dp),
@@ -68,7 +89,31 @@ fun SessionScreen(vm: ScanViewModel, sessionId: String, onBack: () -> Unit) {
                         Text("Nuage 3D : ${info.pointCount} points (PLY, echelle reelle)")
                     else
                         Text("Pas de nuage 3D (telephone sans profondeur ARCore)")
+                    if (info.hasMesh)
+                        Text("Maillage STL genere (pret pour impression)",
+                            color = MaterialTheme.colorScheme.secondary,
+                            fontWeight = FontWeight.SemiBold)
                 }
+            }
+
+            if (info.hasCloud) {
+                Button(
+                    onClick = {
+                        vm.generateStl(sessionId) { ok, msg ->
+                            Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                            info = vm.sessions.listSessions().firstOrNull { it.id == sessionId }
+                        }
+                    },
+                    enabled = !busy,
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text(if (busy) "Reconstruction en cours…" else "Generer le STL (impression 3D)") }
+            }
+
+            if (info.hasMesh) {
+                Button(
+                    onClick = { stlLauncher.launch("$sessionId.stl") },
+                    Modifier.fillMaxWidth()
+                ) { Text("Exporter le STL") }
             }
 
             Button(
