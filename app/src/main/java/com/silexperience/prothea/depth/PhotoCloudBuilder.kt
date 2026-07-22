@@ -31,7 +31,8 @@ object PhotoCloudBuilder {
         azimuthDeg: Double,
         store: PointCloudStore,
         distanceM: Float = 0.60f,
-        fovVDeg: Float = 52f
+        fovVDeg: Float = 52f,
+        scale: Float = 1f
     ) {
         val w = depth.width
         val h = depth.height
@@ -52,7 +53,7 @@ object PhotoCloudBuilder {
                 if (d > 0.50f && u in -0.35f..0.35f && v in 0.10f..0.90f) {
                     // Profondeur relative -> rayon autour de l'axe du sujet.
                     // Le sujet (proche, d~1) donne un petit rayon ; le fond est ecarte.
-                    val r = (distanceM * (1.25f - 0.90f * d)).coerceIn(0.04f, distanceM)
+                    val r = (distanceM * (1.25f - 0.90f * d) * scale).coerceIn(0.04f, distanceM * 1.3f)
                     val angle = baseAngle + u * 0.7 // ~ +/-20 degres de champ lateral
                     val px = r * sin(angle).toFloat()
                     val pz = r * cos(angle).toFloat()
@@ -63,5 +64,30 @@ object PhotoCloudBuilder {
             }
             y += step
         }
+    }
+
+    /** Rayon median des pixels "sujet" d'une photo (memes filtres qu'append).
+     *  Sert au recalage inter-photos : compense les variations de distance
+     *  et de normalisation MiDaS d'une photo a l'autre. */
+    fun medianSubjectRadius(depth: DepthEstimator.Result, distanceM: Float = 0.60f): Float {
+        val w = depth.width; val h = depth.height
+        val vals = ArrayList<Float>(4096)
+        var y = 0
+        while (y < h) {
+            var x = 0
+            while (x < w) {
+                val d = depth.depth[y * w + x]
+                val u = x.toFloat() / w - 0.5f
+                val v = y.toFloat() / h
+                if (d > 0.50f && u in -0.35f..0.35f && v in 0.10f..0.90f) {
+                    vals.add((distanceM * (1.25f - 0.90f * d)).coerceIn(0.04f, distanceM))
+                }
+                x += 3
+            }
+            y += 3
+        }
+        if (vals.isEmpty()) return distanceM * 0.4f
+        vals.sort()
+        return vals[vals.size / 2]
     }
 }

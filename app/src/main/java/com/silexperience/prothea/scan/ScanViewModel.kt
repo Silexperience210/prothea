@@ -184,16 +184,27 @@ class ScanViewModel(app: Application) : AndroidViewModel(app) {
                 }
                 val store = PointCloudStore(200_000)
                 val azRe = Regex("az(\\d+)")
-                var processed = 0
+                // Passe 1 : inference + rayon median par photo (recalage inter-photos)
+                data class Shot(val az: Double, val res: com.silexperience.prothea.depth.DepthEstimator.Result, val medR: Float)
+                val shots = ArrayList<Shot>()
                 for (f in photos) {
                     val az = azRe.find(f.name)?.groupValues?.get(1)?.toDoubleOrNull() ?: continue
-                    prog("Analyse photo ${processed + 1}/${photos.size}…")
+                    prog("Analyse photo ${shots.size + 1}/${photos.size}…")
                     val opts = android.graphics.BitmapFactory.Options().apply { inSampleSize = 2 }
                     val bmp = android.graphics.BitmapFactory.decodeFile(f.path, opts) ?: continue
                     val res = depthEstimator.estimate(bmp) ?: continue
-                    com.silexperience.prothea.depth.PhotoCloudBuilder.append(res, az.toDouble(), store)
-                    processed++
+                    val medR = com.silexperience.prothea.depth.PhotoCloudBuilder.medianSubjectRadius(res)
+                    shots.add(Shot(az.toDouble(), res, medR))
                 }
+                // Passe 2 : chaque photo est rescalee sur le rayon median global
+                val meds = shots.map { it.medR }.sorted()
+                val globalMed = meds.getOrElse(meds.size / 2) { 0.25f }
+                for (s in shots) {
+                    val scale = if (s.medR > 0.01f) (globalMed / s.medR).coerceIn(0.6f, 1.6f) else 1f
+                    com.silexperience.prothea.depth.PhotoCloudBuilder.append(
+                        s.res, s.az, store, scale = scale)
+                }
+                val processed = shots.size
                 if (store.size < 1000) {
                     done(false, "Echec reconstruction : ${store.size} pts " +
                         "(IA ok=${depthEstimator.inferenceOk} err=${depthEstimator.inferenceFailed} " +
