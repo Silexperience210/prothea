@@ -24,6 +24,9 @@ class ScanViewModel(app: Application) : AndroidViewModel(app) {
     /** Derniere carte de profondeur estimee (camera frontale). */
     @Volatile var lastDepth: DepthEstimator.Result? = null
 
+    /** Nuage construit depuis les photos + profondeur IA (fallback sans ARCore depth). */
+    val photoCloud = PointCloudStore(150_000)
+
     private val _sessionId = MutableStateFlow<String?>(null)
     val sessionId = _sessionId.asStateFlow()
 
@@ -50,11 +53,12 @@ class ScanViewModel(app: Application) : AndroidViewModel(app) {
         _photoCount.value = 0
         _calibrated.value = false
         arCore.cloud.clear()
+        photoCloud.clear()
         coverage.start()
         arCore.start()
         viewModelScope.launch {
             while (_sessionId.value == id) {
-                _cloudPoints.value = arCore.cloud.size
+                _cloudPoints.value = arCore.cloud.size + photoCloud.size
                 kotlinx.coroutines.delay(500)
             }
         }
@@ -81,12 +85,26 @@ class ScanViewModel(app: Application) : AndroidViewModel(app) {
 
     fun onPhotoSaved(bytes: ByteArray) {
         val id = _sessionId.value ?: return
-        sessions.savePhoto(id, bytes, _photoCount.value, _azimuthDeg.value)
+        val index = _photoCount.value
+        val azimuth = _azimuthDeg.value
+        sessions.savePhoto(id, bytes, index, azimuth)
         // Le secteur n'est valide QUE si une photo y a ete prise
         coverage.markSectorFor(_lastAzimuthRaw.value)
-        // Camera frontale : on joint la carte de profondeur ML (PNG gris)
-        lastDepth?.let { sessions.saveDepthMap(id, _photoCount.value, it) }
         _photoCount.value += 1
+        // Profondeur IA sur CHAQUE photo (avant ET arriere) : alimente le
+        // nuage-photo, independant d'ARCore. En arriere-plan pour ne pas
+        // bloquer l'UI pendant l'inference.
+        if (depthEstimator.available) {
+            viewModelScope.launch(Dispatchers.Default) {
+                val bmp = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                    ?: return@launch
+                val res = depthEstimator.estimate(bmp) ?: return@launch
+                lastDepth = res
+                sessions.saveDepthMap(id, index, res)
+                com.silexperience.prothea.depth.PhotoCloudBuilder.append(
+                    res, azimuth, photoCloud)
+            }
+        }
     }
 
     /** Termine la session : sauvegarde le nuage PLY + meta chiffree. */
@@ -94,8 +112,13 @@ class ScanViewModel(app: Application) : AndroidViewModel(app) {
         val id = _sessionId.value ?: return
         _busy.value = true
         viewModelScope.launch(Dispatchers.IO) {
-            if (arCore.cloud.size > 500) {
-                val (pts, n) = arCore.cloud.snapshot()
+            // Priorite au nuage ARCore (echelle metrique) ; sinon nuage-photo IA
+            // (echelle approximative mais fonctionne sur tous les telephones)
+            val best = if (arCore.cloud.size > 500) arCore.cloud
+                       else if (photoCloud.size > 1000) photoCloud
+                       else null
+            best?.let {
+                val (pts, n) = it.snapshot()
                 PlyExporter.write(pts, n, sessions.cloudFile(id))
             }
             sessions.writeMeta(

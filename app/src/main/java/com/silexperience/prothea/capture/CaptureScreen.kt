@@ -282,13 +282,12 @@ fun CaptureScreen(vm: ScanViewModel, onDone: () -> Unit) {
                     "Modele de profondeur ML absent — photos seules"
             } else when (arState) {
                 ArCoreEngine.State.READY ->
-                    if (vm.arCore.depthSupported) {
+                    if (cloudPoints > 0)
+                        "Points 3D accumules : $cloudPoints (ARCore + IA photos)"
+                    else if (vm.arCore.depthSupported) {
                         val d = vm.arCore
-                        if (cloudPoints > 0)
-                            "ARCore actif · profondeur OK · $cloudPoints pts"
-                        else
-                            "ARCore ok · 0 pts — tracking=${d.tracking} depthOk=${d.depthFramesOk} echecs=${d.depthFramesFailed} ${d.lastDepthError ?: ""}".take(120)
-                    } else "ARCore actif (sans capteur de profondeur)"
+                        "ARCore · 0 pts — tracking=${d.tracking} depthOk=${d.depthFramesOk} echecs=${d.depthFramesFailed} ${d.lastDepthError ?: ""}".take(120)
+                    } else "Points 3D via IA sur les photos"
                 ArCoreEngine.State.STARTING -> "ARCore : demarrage…"
                 ArCoreEngine.State.UNSUPPORTED -> "ARCore indisponible — mode photos seules"
                 ArCoreEngine.State.ERROR -> "ARCore en erreur — mode photos seules"
