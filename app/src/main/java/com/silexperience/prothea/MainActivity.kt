@@ -12,6 +12,7 @@ import com.silexperience.prothea.scan.ScanViewModel
 import com.silexperience.prothea.ui.HomeScreen
 import com.silexperience.prothea.ui.ProtheaTheme
 import com.silexperience.prothea.ui.SessionScreen
+import com.silexperience.prothea.ui.StlViewerScreen
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
