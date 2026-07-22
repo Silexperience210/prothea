@@ -45,4 +45,6 @@ Un workflow GitHub Actions compile l'APK à chaque push (onglet *Actions* → ar
 - [ ] Guide de pose AR (bras à 45°, respiration à mi-expiration)
 - [ ] Partenariat clinique (Ligue contre le cancer) pour validation métrologique
 
-## Av
+## Avertissement
+
+Prothea est un outil d'aide à la conception, **pas un dispositif médical certifié**. Toute prothèse définitive doit être validée par un prothésiste/orthoprothésiste diplômé.

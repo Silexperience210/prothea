@@ -77,26 +77,27 @@ fun SessionScreen(vm: ScanViewModel, sessionId: String, onBack: () -> Unit) {
         Text("Session", style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.Bold)
 
-        if (info == null) {
+        val s = info
+        if (s == null) {
             Text("Session introuvable.")
         } else {
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     val fmt = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.FRANCE)
-                    Text(fmt.format(Date(info.dateMillis)))
-                    Text("${info.photoCount} photos source")
-                    if (info.hasCloud)
-                        Text("Nuage 3D : ${info.pointCount} points (PLY, echelle reelle)")
+                    Text(fmt.format(Date(s.dateMillis)))
+                    Text("${s.photoCount} photos source")
+                    if (s.hasCloud)
+                        Text("Nuage 3D : ${s.pointCount} points (PLY, echelle reelle)")
                     else
                         Text("Pas de nuage 3D (telephone sans profondeur ARCore)")
-                    if (info.hasMesh)
+                    if (s.hasMesh)
                         Text("Maillage STL genere (pret pour impression)",
                             color = MaterialTheme.colorScheme.secondary,
                             fontWeight = FontWeight.SemiBold)
                 }
             }
 
-            if (info.hasCloud) {
+            if (s.hasCloud) {
                 Button(
                     onClick = {
                         vm.generateStl(sessionId) { ok, msg ->
@@ -109,7 +110,7 @@ fun SessionScreen(vm: ScanViewModel, sessionId: String, onBack: () -> Unit) {
                 ) { Text(if (busy) "Reconstruction en cours…" else "Generer le STL (impression 3D)") }
             }
 
-            if (info.hasMesh) {
+            if (s.hasMesh) {
                 Button(
                     onClick = { stlLauncher.launch("$sessionId.stl") },
                     Modifier.fillMaxWidth()
@@ -121,7 +122,7 @@ fun SessionScreen(vm: ScanViewModel, sessionId: String, onBack: () -> Unit) {
                 Modifier.fillMaxWidth()
             ) { Text("Exporter la session (ZIP)") }
 
-            if (info.photoCount > 0) {
+            if (s.photoCount > 0) {
                 OutlinedButton(
                     onClick = {
                         vm.sessions.deletePhotos(sessionId)
